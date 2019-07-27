@@ -1,46 +1,50 @@
 import unittest
+import os
 from collections import namedtuple
 import datetime
 import logging
-from log_analyzer import find_log, is_report_exist, create_report
+from log_analyzer import *
 
 
 class TestFindLog(unittest.TestCase):
 
-    def test_exist_file_log(self):
+    def test_file_log_exist(self):
         FilePath = namedtuple('FilePath', 'file_name date ext')
-        self.assertEqual(find_log({'log_dir': './log'}),
-                         FilePath(file_name='nginx-access-ui-20170815.log', date=datetime.date(2017, 8, 15), ext='log'))
+        self.assertEqual(find_log('./log'),
+                         FilePath(file_name='nginx-access-ui-20170820.log',
+                                  date=datetime.datetime.strptime('20170820', '%Y%m%d'),
+                                  ext='log'))
 
-    # log2 = empty directory
-    # @mock.patch(logging)
-    # def test_empty_file_log(self, mock_logger):
-    #     find_log({'log_dir': './log2'})
-    #     mock_logger.warn.assert_called_with('No data to process')
-
-    def test_exist_file_log(self):
+    def test_file_log_not_exist(self):
         FilePath = namedtuple('FilePath', 'file_name date ext')
-        self.assertEqual(find_log({'log_dir': './log2'}), None)
-
+        self.assertEqual(find_log('./log2'), None)
 
     def test_report_exist(self):
-        self.assertTrue(is_report_exist(datetime.date(2017, 8, 15), {'report_dir': './reports'}))
-
+        self.assertTrue(is_report_exist(datetime.datetime.strptime('20170820', '%Y%m%d'),
+                                        './reports'))
 
     def test_report_not_exist(self):
-        self.assertFalse(is_report_exist(datetime.date(2017, 8, 16), {'report_dir': './reports'}))
+        self.assertFalse(is_report_exist(datetime.datetime.strptime('20170825', '%Y%m%d'),
+                                         './reports'))
 
-    def create_report_correct(self):
-        FilePath = namedtuple('FilePath', 'file_name date ext')
-        self.assertTrue(create_report(FilePath(file_name='nginx-access-ui-20170815.log',
-                                               date=datetime.date(2017, 8, 15), ext='log'),
-                                      {'report_dir': './reports'}))
+    def test_collect_config(self):
+        config = {'log_dir': './log', 'log_file': './report.log', 'report_dir': './reports',
+                  'report_size': 1000, 'err_lines': '20'}
+        self.assertEqual(collect_config(), config)
 
-    def create_report_incorrect(self):
-        FilePath = namedtuple('FilePath', 'file_name date ext')
-        self.assertFalse(create_report(FilePath(file_name='nginx-access-ui-20170815.log',
-                                               date=datetime.date(2017, 8, 20), ext='log'),
-                                      {'report_dir': './reports'}))
+    def test_aggregate_stat(self):
+        report_url = aggregate_stat(FilePath(file_name='nginx-access-ui-20170820.log',
+                                  date=datetime.datetime.strptime('20170820', '%Y%m%d'),
+                                  ext='log'), './log', 20)
+        self.assertTrue(len(report_url) == 256565)
+
+    def test_create_report(self):
+        config = {'log_dir': './log', 'log_file': './report.log', 'report_dir': './reports',
+                  'report_size': 1000, 'err_lines': '20'}
+        report_url = [{"url": "/api/v2/internal/html5/phantomjs/queue/?wait=1m", "count": 2767, "count_perc": 0.1, "time_avg": 62.995,
+         "time_max": 9843.569, "time_med": 60.073, "time_perc": 9.04, "time_sum": 174306.352}]
+        file_date = datetime.datetime.strptime('20170820', '%Y%m%d')
+        self.assertTrue(create_report(config, file_date, report_url))
 
 
 if __name__ == "__main__":
