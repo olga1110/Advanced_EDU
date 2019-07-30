@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 import os
@@ -21,6 +21,13 @@ from functools import wraps
 #                     '"$http_user_agent" "$http_x_forwarded_for" "$http_X_REQUEST_ID" "$http_X_RB_USER" '
 #                     '$request_time';
 
+parser_args = argparse.ArgumentParser()
+parser_args.add_argument('-c', '--config', default='config.ini')
+parser_args.add_argument('-l', '--level', default='i')
+args = parser_args.parse_args()
+
+detail_log = True if args.level == 'd+' else False
+
 config = {
     'REPORT_SIZE': 1000,
     'report_dir': './reports1',
@@ -38,9 +45,10 @@ def log(msg_err=''):
             try:
                 start_time = time.time()
                 result = func(*args, **kwargs)
-                msg = 'вызов функции {} с аргументами: {}, {} выполнен'.format(func.__name__, args, kwargs)
-                logging.debug(msg + '\n' + func.__doc__)
-                logging.debug(f'working time of function {func.__name__}: {time.time() - start_time} seconds')
+                if detail_log:
+                    msg = 'вызов функции {} с аргументами: {}, {} выполнен'.format(func.__name__, args, kwargs)
+                    logging.debug(msg + '\n' + func.__doc__)
+                    logging.debug(f'working time of function {func.__name__}: {time.time() - start_time} seconds')
                 return result
             except:
                 logging.exception(msg_err)
@@ -57,10 +65,6 @@ def collect_config():
         config -- internal configuration parameters (dict)
 
         """
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config', default='config.ini')
-    args = parser.parse_args()
-
     if not os.path.exists(args.config):
         sys.exit('Config file is not exist. Check and try again!')
 
@@ -94,14 +98,16 @@ def find_log(log_dir):
         if re.match(pattern, file):
             ext = 'gz' if file.endswith('.gz') else 'log'
             date_indx = file.rfind('.')
-            date = datetime.datetime.strptime(file[date_indx - 8: date_indx], '%Y%m%d')
-            if date > max_date:
-                file_path = FilePath(file, date, ext)
-                max_date = date
+            try:
+                date = datetime.datetime.strptime(file[date_indx - 8: date_indx], '%Y%m%d')
+                if date > max_date:
+                    file_path = FilePath(file, date, ext)
+                    max_date = date
+            except ValueError as e:
+                logging.exception(f'The date in the file name {file} does not match YYYYMMDD')
     if file_path:
         return file_path
-    else:
-        logging.info('No data to process')
+    logging.info('No data to process')
 
 
 @log('File parsing error')
@@ -123,15 +129,14 @@ def parser_log(file_path, log_dir, err_lines):
             line = line.decode('utf-8') if file_path.ext == 'gz' else line
             if line.find(' "0" ') != -1:
                 continue
-            else:
-                url_start = line.find(" ", line.find('+0300]') + 8)
-                url_end = line.find(' HTTP')
+            url_start = line.find(" ", line.find('+0300]') + 8)
+            url_end = line.find(' HTTP')
 
-                url = line[url_start + 1: url_end]
-                time_indx = line.rfind('" ')
-                time_request = float(line[time_indx + 2:len(line)])
-                parsed_line = [url, time_request]
-                yield parsed_line
+            url = line[url_start + 1: url_end]
+            time_indx = line.rfind('" ')
+            time_request = float(line[time_indx + 2:len(line)])
+            parsed_line = [url, time_request]
+            yield parsed_line
 
         except Exception:
             err_lines += 1
@@ -140,7 +145,7 @@ def parser_log(file_path, log_dir, err_lines):
         sys.exit('Allowed error rate exceeded. Report not generated')
 
 
-@log('')
+@log()
 def is_report_exist(file_date, report_dir):
     """Return boolean value. Check if report on required date already exists
 
@@ -194,11 +199,8 @@ def aggregate_stat(file_path, log_dir, err_lines):
                                    time_med=time_med, time_perc=time_perc, time_sum=round(time_sum, 3)))
 
         report_url = sorted(report_url, key=lambda url: url['time_sum'], reverse=True)
-        with open('test.txt', 'w') as f:
-            f.write(json.dumps(report_url))
         return report_url
-    else:
-        logging.info('The file is empty. Report not generated')
+    logging.info('The file is empty. Report not generated')
 
 
 @log('Report generation error')
@@ -229,11 +231,19 @@ def create_report(config, file_date, report_url):
 
 def main():
     config = collect_config()
+    log_levels = {'d+': logging.DEBUG,
+                  'd': logging.DEBUG,
+                  'i': logging.INFO,
+                  'w': logging.WARNING,
+                  'e': logging.ERROR,
+                  'c': logging.CRITICAL
+                  }
+
     logging.basicConfig(
         filename=config.get('log_file'),
         format="%(asctime)s %(levelname).1s %(message)s",
         datefmt='%Y.%m.%d %H:%M:%S',
-        level=logging.DEBUG
+        level=log_levels.get(args.level)
     )
 
     file_path = find_log(config.get("log_dir"))
