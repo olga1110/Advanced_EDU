@@ -27,10 +27,10 @@ class TestFindLog(unittest.TestCase):
         self.assertFalse(is_report_exist(datetime.datetime.strptime('20170825', '%Y%m%d'),
                                          './reports'))
 
-    def test_collect_config(self):
+    def test_build_config(self):
         config = {'log_dir': './log', 'log_file': './report.log', 'report_dir': './reports',
                   'report_size': 1000, 'err_lines': '20'}
-        self.assertEqual(collect_config(), config)
+        self.assertEqual(build_config(), config)
 
     def test_aggregate_stat(self):
         report_url = aggregate_stat(FilePath(file_name='nginx-access-ui-20170820.log',
@@ -44,7 +44,11 @@ class TestFindLog(unittest.TestCase):
         report_url = [{"url": "/api/v2/internal/html5/phantomjs/queue/?wait=1m", "count": 2767, "count_perc": 0.1, "time_avg": 62.995,
          "time_max": 9843.569, "time_med": 60.073, "time_perc": 9.04, "time_sum": 174306.352}]
         file_date = datetime.datetime.strptime('20170820', '%Y%m%d')
-        self.assertTrue(create_report(config, file_date, report_url))
+        # self.assertFalse(os.path.exists(os.path.join(config.get('report_dir'), 'report-' + file_date.strftime("%Y.%m.%d") + '.html')))
+        create_report(config, file_date, report_url)
+        self.assertTrue(os.path.exists(
+            os.path.join(config.get('report_dir'), 'report-' + file_date.strftime("%Y.%m.%d") + '.html')))
+
 
 
 if __name__ == "__main__":

@@ -26,7 +26,7 @@ parser_args.add_argument('-c', '--config', default='config.ini')
 parser_args.add_argument('-l', '--level', default='i')
 args = parser_args.parse_args()
 
-detail_log = True if args.level == 'd+' else False
+detail_log = True if args.level == 'i' else False
 
 config = {
     'REPORT_SIZE': 1000,
@@ -47,18 +47,16 @@ def log(msg_err=''):
                 result = func(*args, **kwargs)
                 if detail_log:
                     msg = 'вызов функции {} с аргументами: {}, {} выполнен'.format(func.__name__, args, kwargs)
-                    logging.debug(msg + '\n' + func.__doc__)
-                    logging.debug(f'working time of function {func.__name__}: {time.time() - start_time} seconds')
+                    logging.info(msg + '\n' + func.__doc__)
+                    logging.info(f'working time of function {func.__name__}: {time.time() - start_time} seconds')
                 return result
             except:
                 logging.exception(msg_err)
-
         return wrap
-
     return dec
 
 
-def collect_config():
+def build_config():
     """Return aggregated dictionary from internal settings and external file
 
         Keyword arguments:
@@ -78,7 +76,8 @@ def collect_config():
     for k in config.keys():
         config[k.lower()] = config.pop(k)
     config.update(dict(parser.items('SETTINGS')))
-    return config
+    cfg = config.copy()
+    return cfg
 
 
 @log('Error with finding log file')
@@ -138,7 +137,7 @@ def parser_log(file_path, log_dir, err_lines):
             parsed_line = [url, time_request]
             yield parsed_line
 
-        except Exception:
+        except:
             err_lines += 1
     if total_lines and err_lines / total_lines * 100 > float(err_lines):
         logging.error(f"Allowed error rate {err_lines} exceeded")
@@ -154,13 +153,12 @@ def is_report_exist(file_date, report_dir):
         config -- configuration parameters (dict)
         """
     if os.path.exists(os.path.join(report_dir, 'report-' + file_date.strftime("%Y.%m.%d") + '.html')):
-        logging.info(f'Report on date {file_date.strftime("%Y.%m.%d")} already exists')
         return True
     return False
 
 
 @log('Error with preparing aggregate statistics')
-def aggregate_stat(file_path, log_dir, err_lines):
+def aggregate_stat(file_path, log):
     """Function aggregates statistics
 
         Keyword arguments:
@@ -168,7 +166,7 @@ def aggregate_stat(file_path, log_dir, err_lines):
         log_dir -- log directory (str)
         err_lines -- acceptable error rate
         """
-    log = parser_log(file_path, log_dir, err_lines)
+
     url_stats = {}
     report_url = []
     total_amount = total_time = 0
@@ -226,33 +224,35 @@ def create_report(config, file_date, report_url):
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write(report_content)
     logging.info(f'Report is generated: {report_path}')
-    return True
 
 
 def main():
-    config = collect_config()
-    log_levels = {'d+': logging.DEBUG,
-                  'd': logging.DEBUG,
-                  'i': logging.INFO,
-                  'w': logging.WARNING,
-                  'e': logging.ERROR,
-                  'c': logging.CRITICAL
-                  }
+    cfg = build_config()
+    log_levels = {'i': logging.INFO,
+                  'e': logging.ERROR}
+
 
     logging.basicConfig(
-        filename=config.get('log_file'),
+        filename=cfg.get('log_file'),
         format="%(asctime)s %(levelname).1s %(message)s",
         datefmt='%Y.%m.%d %H:%M:%S',
         level=log_levels.get(args.level)
     )
 
-    file_path = find_log(config.get("log_dir"))
+    file_path = find_log(cfg.get("log_dir"))
+    report_exist = is_report_exist(file_path.date, cfg.get('report_dir'))
+    if report_exist:
+        logging.info(f'Report on date {file_path.date.strftime("%Y.%m.%d")} already exists')
 
-    if file_path and not is_report_exist(file_path.date, config.get('report_dir')):
-        report_url = aggregate_stat(file_path, config.get('log_dir'), config.get('err_lines'))
+    if file_path and not report_exist:
+        log = parser_log(file_path, cfg.get('log_dir'), cfg.get('err_lines'))
+        report_url = aggregate_stat(file_path, log)
         if report_url:
             create_report(config, file_path.date, report_url)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except:
+        logging.exception('Program execution error')
