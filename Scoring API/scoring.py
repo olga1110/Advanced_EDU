@@ -7,7 +7,7 @@ def get_score(store, online_score_request):
         score += 1.5
     if online_score_request.email:
         score += 1.5
-    if online_score_request.birthday and online_score_request.gender:
+    if online_score_request.birthday and online_score_request.gender in [0,1,2]:
         score += 1.5
     if online_score_request.first_name and online_score_request.last_name:
         score += 0.5

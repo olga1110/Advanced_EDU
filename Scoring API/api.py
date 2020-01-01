@@ -86,12 +86,13 @@ class DateField(object):
             if not self.nullable and not value:
                 # raise ValueError(f"attribute {self.name[1:]} can't be null")
                 logging.error(f"Validation Error: attribute {self.name[1:]} can't be null;")
-        if not isinstance(value, self.type):
+        if value and not isinstance(value, self.type):
             # raise TypeError('Input date in str format')
-            logging.error('Validation Error: attribute {self.name[1:]} must be input in str format;')
+            logging.error(f'Validation Error: attribute {self.name[1:]} must be input in str format;')
         try:
-            datetime.datetime.strptime(value, self.date_format).date()
-            setattr(instance, self.name, datetime.datetime.strptime(value, self.date_format).date())
+            if value and isinstance(value, str):
+                datetime.datetime.strptime(value, self.date_format).date()
+                setattr(instance, self.name, datetime.datetime.strptime(value, self.date_format).date())
         except ValueError:
             # raise ValueError('Incorrect date format: must be DD.MM.YYYY')
             logging.error(f'Validation Error: Attribute {self.name[1:]} must be str in DD.MM.YYYY format;')
@@ -104,10 +105,11 @@ class EmailField(CharField):
         self.name = "_" + 'email'
 
     def __set__(self, instance, value):
-        if '@' not in value:
-            # raise ValueError('Must contains @')
-            logging.error(f'Validation Error: attribute {self.name[1:]} must contains @;')
-        super().__set__(instance, value)
+        if value and isinstance(value, str):
+            if '@' not in value:
+                # raise ValueError('Must contains @')
+                logging.error(f'Validation Error: attribute {self.name[1:]} must contains @;')
+            super().__set__(instance, value)
 
 
 class PhoneField(CharField):
@@ -117,16 +119,17 @@ class PhoneField(CharField):
         self.name = "_" + 'phone'
 
     def __set__(self, instance, value):
-        if not (isinstance(value, str) or isinstance(value, int)):
-            # raise TypeError("Must be a str or an int")
-            logging.error(f"Validation Error: attribute {self.name[1:]} Must be a str or an int;")
-        elif len(str(value)) != 11:
-            # raise ValueError("It must contains 11 symbols")
-            logging.error(f"Validation Error: attribute {self.name[1:]} must contains 11 symbols;")
-        elif not str(value).startswith('7'):
-            # raise ValueError("It must starts with 7")
-            logging.error(f"Validation Error: attribute {self.name[1:]} must starts with 7;")
-        setattr(instance, self.name, value)
+        if value:
+            if not (isinstance(value, str) or isinstance(value, int)):
+                # raise TypeError("Must be a str or an int")
+                logging.error(f"Validation Error: attribute {self.name[1:]} Must be a str or an int;")
+            elif len(str(value)) != 11:
+                # raise ValueError("It must contains 11 symbols")
+                logging.error(f"Validation Error: attribute {self.name[1:]} must contains 11 symbols;")
+            elif not str(value).startswith('7'):
+                # raise ValueError("It must starts with 7")
+                logging.error(f"Validation Error: attribute {self.name[1:]} must starts with 7;")
+            setattr(instance, self.name, value)
 
 
 class BirthDayField(DateField):
@@ -150,6 +153,7 @@ class BirthDayField(DateField):
 class GenderField(object):
     def __init__(self, required, nullable, name='gender', default=None):
         self.name = "_" + name
+        self.type = int
         self.values = GENDERS
         self.required = required
         self.nullable = nullable
@@ -166,7 +170,9 @@ class GenderField(object):
             if not self.nullable and not value:
                 # raise ValueError(f"attribute {self.name[1:]} can't be null")
                 logging.error(f"Validation Error: attribute {self.name[1:]} can't be null;")
-        if value not in self.values:
+        if value and not isinstance(value, self.type):
+            logging.error(f'Validation Error: attribute {self.name[1:]} must be an int;')
+        if isinstance(value, self.type) and value not in self.values:
             # raise TypeError('Must be 0, 1 or 2')
             logging.error(f'Validation Error: attribute {self.name[1:]} must be in {GENDERS};')
         setattr(instance, self.name, value)
@@ -258,14 +264,96 @@ def check_auth(request):
         digest = hashlib.sha512(datetime.datetime.now().strftime("%Y%m%d%H").encode('utf-8') + ADMIN_SALT.encode('utf-8')).hexdigest()
     else:
         digest = hashlib.sha512(str(request.account).encode('utf-8') + str(request.login).encode('utf-8') + SALT.encode('utf-8')).hexdigest()
+    # print(f'digest: {digest}')
     if digest == request.token:
         return True
     return False
 
 
-def method_handler(request, ctx, store):
+def method_handler(request, context, log_file_name, router, store):
     response, code = None, None
+    logging.info(f'context: {context}')
+    new_request = MethodRequest()
+    # Field validation
+    new_request.account = request.get('account')
+    new_request.login = request.get('login')
+    new_request.method = request.get('method')
+    new_request.token = request.get('token')
+    new_request.arguments = request.get('arguments')
+    # Auth
+    check_result = check_auth(new_request)
+    if check_result:
+        # if request.get('method') == 'online_score':
+        if new_request.method == 'online_score':
+            if new_request.login == 'admin':
+                code, response = OK, {"score": 42}
+                # result = {"code": OK, "response": {"score": 42}}
+            else:
+                online_score_request = OnlineScoreRequest()
+                if request.get('arguments'):
+                    online_score_request.phone = request.get('arguments').get('phone')
+                    online_score_request.email = request.get('arguments').get('email')
+                    online_score_request.first_name = request.get('arguments').get('first_name')
+                    online_score_request.last_name = request.get('arguments').get('last_name')
+                    online_score_request.birthday = request.get('arguments').get('birthday')
+                    online_score_request.gender = request.get('arguments').get('gender')
+
+                if not (online_score_request.phone and online_score_request.email) and \
+                        not (online_score_request.first_name and online_score_request.last_name) and \
+                        not (online_score_request.gender != "" and online_score_request.birthday):
+                    logging.error(
+                        'Validation Error: At least one pair phone-email, first name-last name, gender-birthday should be filled;')
+        # elif request.get('method') == 'clients_interests':
+        elif new_request.method == 'clients_interests':
+            clients_interests = ClientsInterestsRequest()
+            if request.get('arguments'):
+                clients_interests.client_ids = request.get('arguments').get('client_ids')
+                clients_interests.date = request.get('arguments').get('date')
+        #  Check validation errors
+        err_msg = ''
+        with open(log_file_name) as f:
+            for num, line in enumerate(f, 1):
+                if context["request_id"] in line:
+                    line_start = num
+                    break
+            # lines = f.readlines()[need_line:]
+            try:
+                for num, line in enumerate(f, line_start + 1):
+                    if 'Validation Error:' in line:
+                        # with open('api_log.log', encoding='utf-8') as f:
+                        #     for line in f:
+                        #         if 'Validation Error:' in line:
+                        err_msg += line[line.rfind('Error:') + len('Error:') + 1:].replace('\n', ' ')
+            except:
+                logging.exception('Errors with getting info from log file')
+        if err_msg:
+            code, response = INVALID_REQUEST, err_msg[:-2]
+            # result = {"code": INVALID_REQUEST, "error": err_msg}
+        else:
+            # Calculation
+            # context = dict.fromkeys(['has'])
+            try:
+                # if new_request.method == 'online_score':
+                if new_request.method == 'online_score' and new_request.login != 'admin':
+                    # score = scoring.get_score(online_score_request)
+                    score = router.get(new_request.method)(store, online_score_request)
+                    code, response = OK, {"score": score}
+                    context['has'] = [k for k, v in new_request.arguments.items() if v != ""]
+                # elif new_request.method == 'clients_interests':
+                elif new_request.method == 'clients_interests':
+                    interests_list = {}
+                    context['nclients'] = len(clients_interests.client_ids)
+
+                    for id in clients_interests.client_ids:
+                        interests_list[str(id)] = router.get(new_request.method)(store, id)
+                    code, response = OK, interests_list
+            except:
+                code = INTERNAL_ERROR
+    else:
+        code = FORBIDDEN
+        logging.info(f'Authentication for {new_request.account} is failed')
     return response, code
+
 
 def main_http_handler(log_file_name):
     class MainHTTPHandler(BaseHTTPRequestHandler):
@@ -283,7 +371,6 @@ def main_http_handler(log_file_name):
             store = None
             response, code = {}, OK
             context = {"request_id": self.get_request_id(self.headers)}
-            logging.info(f'{context}')
             request = None
             try:
                 data_string = self.rfile.read(int(self.headers['Content-Length']))
@@ -296,88 +383,7 @@ def main_http_handler(log_file_name):
                 logging.info("%s: %s %s" % (self.path, data_string, context["request_id"]))
                 response = None
                 if path in router:
-                    new_request = MethodRequest()
-                    # Field validation
-                    new_request.account = request.get('account')
-                    new_request.login = request.get('login')
-                    new_request.method = request.get('method')
-                    new_request.token = request.get('token')
-                    new_request.arguments = request.get('arguments')
-
-                    # Auth
-                    check_result = check_auth(new_request)
-
-                    if check_result:
-                        # if request.get('method') == 'online_score':
-                        if path == 'online_score':
-                            if new_request.login == 'admin':
-                                code, response = OK, {"score": 42}
-                                # result = {"code": OK, "response": {"score": 42}}
-                            else:
-                                online_score_request = OnlineScoreRequest()
-                                if request.get('arguments'):
-                                    online_score_request.phone = request.get('arguments').get('phone')
-                                    online_score_request.email = request.get('arguments').get('email')
-                                    online_score_request.first_name = request.get('arguments').get('first_name')
-                                    online_score_request.last_name = request.get('arguments').get('last_name')
-                                    online_score_request.birthday = request.get('arguments').get('birthday')
-                                    online_score_request.gender = request.get('arguments').get('gender')
-
-                                if not (online_score_request.phone and online_score_request.email) and \
-                                        not (online_score_request.first_name and online_score_request.last_name) and \
-                                        not (online_score_request.gender and online_score_request.birthday):
-                                    logging.error(
-                                        'Validation Error: At least one pair phone-email, first name-last name, gender-birthday should be filled;')
-                        # elif request.get('method') == 'clients_interests':
-                        elif path == 'clients_interests':
-                            clients_interests = ClientsInterestsRequest()
-                            if request.get('arguments'):
-                                clients_interests.client_ids = request.get('arguments').get('client_ids')
-                                clients_interests.date = request.get('arguments').get('date')
-                        #  Check validation errors
-                        err_msg = ''
-                        with open(log_file_name) as f:
-                            for num, line in enumerate(f, 1):
-                                if context["request_id"] in line:
-                                    line_start = num
-                                    break
-                            # lines = f.readlines()[need_line:]
-                            try:
-                                for num, line in enumerate(f, line_start + 1):
-                                    if 'Validation Error:' in line:
-                            # with open('api_log.log', encoding='utf-8') as f:
-                            #     for line in f:
-                            #         if 'Validation Error:' in line:
-                                        err_msg += line[line.rfind('Error:') + len('Error:') + 1:].replace('\n', ' ')
-                            except:
-                                logging.exception('Errors with getting info from log file')
-                        if err_msg:
-                            code, response = INVALID_REQUEST, err_msg[:-2]
-                            # result = {"code": INVALID_REQUEST, "error": err_msg}
-                        else:
-                            # Calculation
-                            # context = dict.fromkeys(['has'])
-                            context = {}
-                            try:
-                                # if new_request.method == 'online_score':
-                                if path == 'online_score' and new_request.login != 'admin':
-                                    # score = scoring.get_score(online_score_request)
-                                    score = router.get(path)(store, online_score_request)
-                                    code, response = OK, score
-                                    context['has'] = len([v for v in new_request.arguments.values() if v])
-                                # elif new_request.method == 'clients_interests':
-                                elif path == 'clients_interests':
-                                    interests_list = {}
-                                    context['nclients'] = len(clients_interests.client_ids)
-
-                                    for id in clients_interests.client_ids:
-                                        interests_list[str(id)] = router.get(path)(store, id)
-                                    code, response = OK, interests_list
-                            except:
-                                code = INTERNAL_ERROR
-                    else:
-                        code = FORBIDDEN
-                        logging.info(f'Authentication for {new_request.account} is failed')
+                    response, code = method_handler(request, context, log_file_name, router, store)
                 else:
                     code = NOT_FOUND
 
