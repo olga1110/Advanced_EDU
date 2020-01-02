@@ -220,16 +220,17 @@ class ClientIDsField(object):
             if not self.nullable and not value:
                 # raise ValueError(f"attribute {self.name[1:]} can't be null")
                 logging.error(f"Validation Error: attribute {self.name[1:]} can't be null;")
-        if not isinstance(value, self.type):
+        if value and not isinstance(value, self.type):
             # raise TypeError('Must be a list')
             logging.error(f'Validation Error: attribute {self.name[1:]} must be a list;')
-        err = 0
-        for i in value:
-            if not isinstance(i, int):
-                err += 1
-        if err:
-            # raise TypeError("Client id's must be integer")
-            logging.error("Validation Error: Client id's must be integer;")
+        if value and isinstance(value, self.type):
+            err = 0
+            for i in value:
+                if not isinstance(i, int):
+                    err += 1
+            if err:
+                # raise TypeError("Client id's must be integer")
+                logging.error("Validation Error: Client id's must be integer;")
         setattr(instance, self.name, value)
 
 
@@ -297,6 +298,9 @@ def method_handler(request, context, log_file_name, router, store):
                     online_score_request.last_name = request.get('arguments').get('last_name')
                     online_score_request.birthday = request.get('arguments').get('birthday')
                     online_score_request.gender = request.get('arguments').get('gender')
+                else:
+                    online_score_request.phone = online_score_request.email = online_score_request.first_name\
+                        = online_score_request.last_name = online_score_request.birthday = online_score_request.gender = None
 
                 if not (online_score_request.phone and online_score_request.email) and \
                         not (online_score_request.first_name and online_score_request.last_name) and \
@@ -309,6 +313,9 @@ def method_handler(request, context, log_file_name, router, store):
             if request.get('arguments'):
                 clients_interests.client_ids = request.get('arguments').get('client_ids')
                 clients_interests.date = request.get('arguments').get('date')
+            else:
+                clients_interests.client_ids = clients_interests.date = None
+
         #  Check validation errors
         err_msg = ''
         with open(log_file_name) as f:
